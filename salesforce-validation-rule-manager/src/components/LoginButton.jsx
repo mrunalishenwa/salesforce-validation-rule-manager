@@ -1,12 +1,10 @@
-function LoginButton() {
-  const handleLogin = () => {
-    window.location.href = "http://localhost:3000/login";
-  };
+import { loginToSalesforce } from "../services/salesforce";
 
+function LoginButton() {
   return (
     <div style={{ textAlign: "center", marginTop: "100px" }}>
       <button
-        onClick={handleLogin}
+        onClick={loginToSalesforce}
         style={{
           padding: "12px 24px",
           fontSize: "18px",
