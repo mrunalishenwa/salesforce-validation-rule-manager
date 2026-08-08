@@ -14,15 +14,23 @@ app.use(
     credentials: true,
   })
 );
+const isProduction = process.env.NODE_ENV === "production";
+
+app.set("trust proxy", 1); // required for secure cookies to work behind Render's proxy
+
 app.use(
   session({
     secret: process.env.SESSION_SECRET || "salesforce-secret",
     resave: false,
     saveUninitialized: false,
     cookie: {
-      secure: false,
+      // Vercel (frontend) and Render (backend) are different domains, so the
+      // session cookie must be sameSite:"none" + secure:true to be sent on
+      // cross-site fetch requests. Locally, both run on http://localhost, so
+      // we fall back to lax/insecure there instead.
+      secure: isProduction,
       httpOnly: true,
-      sameSite: "lax",
+      sameSite: isProduction ? "none" : "lax",
     },
   })
 );
