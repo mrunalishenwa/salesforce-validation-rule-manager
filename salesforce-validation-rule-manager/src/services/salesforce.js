@@ -5,19 +5,23 @@ export const loginToSalesforce = () => {
   window.location.href = `${API_URL}/login`;
 };
 
-// Check whether the current session is already authenticated with Salesforce
-export const getAuthStatus = async () => {
+function authHeaders(token) {
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
+// Check whether the given token is currently authenticated with Salesforce
+export const getAuthStatus = async (token) => {
   const res = await fetch(`${API_URL}/auth/status`, {
-    credentials: "include",
+    headers: authHeaders(token),
   });
   if (!res.ok) throw new Error("Failed to check auth status");
-  return res.json(); // { loggedIn: boolean, instanceUrl?: string }
+  return res.json(); 
 };
 
 // Fetch all validation rules on the Account object via the Tooling API
-export const getValidationRules = async () => {
+export const getValidationRules = async (token) => {
   const res = await fetch(`${API_URL}/validation-rules`, {
-    credentials: "include",
+    headers: authHeaders(token),
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
@@ -28,12 +32,14 @@ export const getValidationRules = async () => {
 };
 
 // Push staged active/inactive changes to Salesforce
-// changes: [{ id, active }]
-export const deployChanges = async (changes) => {
+// changes: [{ fullName, active }]
+export const deployChanges = async (token, changes) => {
   const res = await fetch(`${API_URL}/validation-rules/deploy`, {
     method: "PATCH",
-    headers: { "Content-Type": "application/json" },
-    credentials: "include",
+    headers: {
+      "Content-Type": "application/json",
+      ...authHeaders(token),
+    },
     body: JSON.stringify({ changes }),
   });
   const data = await res.json();
@@ -43,10 +49,10 @@ export const deployChanges = async (changes) => {
   return data;
 };
 
-export const logout = async () => {
+export const logout = async (token) => {
   const res = await fetch(`${API_URL}/logout`, {
     method: "POST",
-    credentials: "include",
+    headers: authHeaders(token),
   });
   return res.json();
 };

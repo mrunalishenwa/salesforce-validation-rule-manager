@@ -1,15 +1,20 @@
 const jsforce = require("jsforce");
+const tokenStore = require("../tokenStore");
+const { getTokenFromHeader } = require("./authController");
 
 const OBJECT_API_NAME = "Account";
 
-// Build an authenticated jsforce connection from the session
+// Build an authenticated jsforce connection from the bearer token
+// (sent in the Authorization header, not a cookie — see authController.js
+// for why we moved away from cookies for cross-domain deployments).
 function getConnection(req) {
-  if (!req.session || !req.session.accessToken) {
-    return null;
-  }
+  const token = getTokenFromHeader(req);
+  const session = token ? tokenStore.getSession(token) : null;
+  if (!session) return null;
+
   return new jsforce.Connection({
-    instanceUrl: req.session.instanceUrl,
-    accessToken: req.session.accessToken,
+    instanceUrl: session.instanceUrl,
+    accessToken: session.accessToken,
     version: "60.0",
   });
 }

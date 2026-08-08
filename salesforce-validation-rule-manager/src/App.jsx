@@ -8,38 +8,61 @@ import {
   logout,
 } from "./services/salesforce";
 
+const TOKEN_STORAGE_KEY = "sf_token";
+
 function App() {
+  const [token, setToken] = useState(null);
   const [loggedIn, setLoggedIn] = useState(false);
   const [instanceUrl, setInstanceUrl] = useState(null);
   const [rules, setRules] = useState([]);
   const [loading, setLoading] = useState(false);
   const [deploying, setDeploying] = useState(false);
   const [message, setMessage] = useState(null);
+  const [checkingAuth, setCheckingAuth] = useState(true);
 
-  // On load, check if we're already authenticated (e.g. after the OAuth redirect back)
+  // On load: pick up a token either from the OAuth redirect URL (fresh
+  // login) or from sessionStorage (returning visit within this tab).
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
-    if (params.get("login") === "success") {
+    const urlToken = params.get("token");
+    const loginResult = params.get("login");
+
+    let activeToken = null;
+
+    if (loginResult === "success" && urlToken) {
+      activeToken = urlToken;
+      window.sessionStorage.setItem(TOKEN_STORAGE_KEY, urlToken);
       setMessage("Logged in to Salesforce successfully.");
       window.history.replaceState({}, "", "/");
-    } else if (params.get("login") === "error") {
+    } else if (loginResult === "error") {
       setMessage("Salesforce login failed. Please try again.");
       window.history.replaceState({}, "", "/");
+    } else {
+      activeToken = window.sessionStorage.getItem(TOKEN_STORAGE_KEY);
     }
 
-    getAuthStatus()
-      .then((data) => {
-        setLoggedIn(data.loggedIn);
-        setInstanceUrl(data.instanceUrl || null);
-      })
-      .catch(() => setLoggedIn(false));
+    if (activeToken) {
+      setToken(activeToken);
+      getAuthStatus(activeToken)
+        .then((data) => {
+          setLoggedIn(data.loggedIn);
+          setInstanceUrl(data.instanceUrl || null);
+          if (!data.loggedIn) {
+            window.sessionStorage.removeItem(TOKEN_STORAGE_KEY);
+          }
+        })
+        .catch(() => setLoggedIn(false))
+        .finally(() => setCheckingAuth(false));
+    } else {
+      setCheckingAuth(false);
+    }
   }, []);
 
   const handleGetRules = async () => {
     setLoading(true);
     setMessage(null);
     try {
-      const fetchedRules = await getValidationRules();
+      const fetchedRules = await getValidationRules(token);
       // pendingActive mirrors active until the user stages a change
       setRules(fetchedRules.map((r) => ({ ...r, pendingActive: r.active })));
     } catch (err) {
@@ -74,7 +97,7 @@ function App() {
     setDeploying(true);
     setMessage(null);
     try {
-      await deployChanges(changes);
+      await deployChanges(token, changes);
       setRules((prev) => prev.map((r) => ({ ...r, active: r.pendingActive })));
       setMessage("Changes deployed to Salesforce successfully.");
     } catch (err) {
@@ -85,10 +108,20 @@ function App() {
   };
 
   const handleLogout = async () => {
-    await logout();
+    await logout(token);
+    window.sessionStorage.removeItem(TOKEN_STORAGE_KEY);
+    setToken(null);
     setLoggedIn(false);
     setRules([]);
   };
+
+  if (checkingAuth) {
+    return (
+      <div style={{ padding: "30px", fontFamily: "Arial", textAlign: "center" }}>
+        Checking login status...
+      </div>
+    );
+  }
 
   return (
     <div style={{ padding: "30px", fontFamily: "Arial", maxWidth: "800px", margin: "0 auto" }}>
@@ -104,9 +137,7 @@ function App() {
         <LoginButton />
       ) : (
         <>
-
           <p>
-            
             Connected to Salesforce{instanceUrl ? `: ${instanceUrl}` : ""}{" "}
             <button onClick={handleLogout} style={{ marginLeft: "10px" }}>
               Logout

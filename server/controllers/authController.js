@@ -1,4 +1,5 @@
 const jsforce = require("jsforce");
+const tokenStore = require("../tokenStore");
 
 const login = async (req, res) => {
   // useVerifier: true tells jsforce to generate its own PKCE code_verifier
@@ -12,10 +13,11 @@ const login = async (req, res) => {
     useVerifier: true,
   });
 
-  // Save the verifier jsforce generated so we can reuse it in the callback
+  // Save the verifier jsforce generated so we can reuse it in the callback.
+  // This still uses the cookie-based session, which is fine here because
+  // login -> Salesforce -> callback is a same top-level-navigation flow,
+  // not a cross-site fetch/XHR call (those are what get cookie-blocked).
   req.session.codeVerifier = oauth2.codeVerifier;
-
-  console.log("Saved Code Verifier:", req.session.codeVerifier);
 
   const authUrl = oauth2.getAuthorizationUrl({
     scope: "api refresh_token",
@@ -43,40 +45,49 @@ const callback = async (req, res) => {
   // otherwise it's silently dropped and the token exchange fails.
   conn.oauth2.codeVerifier = req.session.codeVerifier;
 
-  console.log("Retrieved Code Verifier:", req.session.codeVerifier);
-
   try {
     await conn.authorize(code);
 
-    req.session.accessToken = conn.accessToken;
-    req.session.instanceUrl = conn.instanceUrl;
-    req.session.refreshToken = conn.refreshToken;
-
-    req.session.save(() => {
-      res.redirect(`${process.env.CLIENT_URL}/?login=success`);
+    // Instead of relying on a cross-site session cookie (which browsers
+    // like Brave/Safari block by default), issue an opaque bearer token
+    // the frontend will store itself and send back in an Authorization
+    // header on every subsequent API call.
+    const token = tokenStore.createToken({
+      accessToken: conn.accessToken,
+      instanceUrl: conn.instanceUrl,
+      refreshToken: conn.refreshToken,
     });
+
+    res.redirect(`${process.env.CLIENT_URL}/?login=success&token=${token}`);
   } catch (err) {
     console.error("OAuth callback error:", err);
     res.redirect(`${process.env.CLIENT_URL}/?login=error`);
   }
 };
 
+// Pulls the bearer token out of the Authorization header, if present
+function getTokenFromHeader(req) {
+  const header = req.headers.authorization;
+  if (!header || !header.startsWith("Bearer ")) return null;
+  return header.slice("Bearer ".length);
+}
+
 const status = (req, res) => {
-  // Prevent the browser from caching this response — a cached 304 here
-  // would keep showing a stale "logged out" state even after a real login.
   res.set("Cache-Control", "no-store");
 
-  if (req.session && req.session.accessToken) {
-    return res.json({ loggedIn: true, instanceUrl: req.session.instanceUrl });
+  const token = getTokenFromHeader(req);
+  const session = token ? tokenStore.getSession(token) : null;
+
+  if (session) {
+    return res.json({ loggedIn: true, instanceUrl: session.instanceUrl });
   }
   return res.json({ loggedIn: false });
 };
 
 const logout = (req, res) => {
-  req.session.destroy(() => {
-    res.clearCookie("connect.sid");
-    res.json({ loggedOut: true });
-  });
+  const token = getTokenFromHeader(req);
+  if (token) tokenStore.deleteToken(token);
+  res.json({ loggedOut: true });
 };
 
 module.exports = {
@@ -84,4 +95,5 @@ module.exports = {
   callback,
   status,
   logout,
+  getTokenFromHeader,
 };
