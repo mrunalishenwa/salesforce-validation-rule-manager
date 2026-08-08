@@ -62,6 +62,10 @@ const callback = async (req, res) => {
 };
 
 const status = (req, res) => {
+  // Prevent the browser from caching this response — a cached 304 here
+  // would keep showing a stale "logged out" state even after a real login.
+  res.set("Cache-Control", "no-store");
+
   if (req.session && req.session.accessToken) {
     return res.json({ loggedIn: true, instanceUrl: req.session.instanceUrl });
   }
