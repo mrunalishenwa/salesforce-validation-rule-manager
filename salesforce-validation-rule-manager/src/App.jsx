@@ -104,7 +104,9 @@ function App() {
         <LoginButton />
       ) : (
         <>
+
           <p>
+            
             Connected to Salesforce{instanceUrl ? `: ${instanceUrl}` : ""}{" "}
             <button onClick={handleLogout} style={{ marginLeft: "10px" }}>
               Logout
